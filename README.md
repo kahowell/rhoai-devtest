@@ -93,25 +93,27 @@ rhoai-devtest [-h] [-v] {openshift-cluster,rhoai-cluster,cleanup} ...
 #### 1. `openshift-cluster`
 Provisions a Red Hat OpenShift cluster.
 ```bash
-rhoai-devtest openshift-cluster [--name NAME] [--machine-type TYPE] [--version VERSION]
+rhoai-devtest openshift-cluster [--name NAME] [--machine-type TYPE] [--version VERSION] [--replicas REPLICAS]
 ```
 
 * `--name`: The name of the cluster. If specified and the cluster already exists, it is reused. If specified and it does not exist, a new cluster is provisioned. If `--name` is not specified, an existing active cluster matching your system username is used, or the command fails if none are found.
 * `--machine-type`: Compute machine type for node pools. Defaults to `m5.2xlarge`.
 * `--version`: Specific OpenShift version. Defaults to the latest available ROSA release.
+* `--replicas`: Number of compute node replicas to provision.
 
 This command verifies AWS and OCM authentication status, sorts and discovers the latest stable OpenShift versions, and rotates through configured subnet pairs until one successfully accepts the cluster creation request.
 
 #### 2. `rhoai-cluster`
 Provisions a RHOAI development cluster.
 ```bash
-rhoai-devtest rhoai-cluster [--name NAME] [--machine-type TYPE] [--version VERSION] [--nightly-image IMAGE]
+rhoai-devtest rhoai-cluster [--name NAME] [--machine-type TYPE] [--version VERSION] [--rhoai-version VERSION] [--replicas REPLICAS]
 ```
 
 * `--name`: Name of the cluster. If specified and the cluster already exists, it is reused. If specified and it does not exist, a new cluster is provisioned. If `--name` is not specified, an existing active cluster matching your system username is used, or the command fails if none are found.
 * `--machine-type`: Compute machine type if a new cluster is provisioned.
 * `--version`: OpenShift version if a new cluster is provisioned.
-* `--nightly-image`: Installs a nightly instance of RHOAI using the specified nightly OCI image reference (e.g. quay.io/rhoai/rhoai-fbc-fragment:rhoai-3.5@sha256:...) instead of a normal released version.
+* `--rhoai-version`: RHOAI version or nightly image reference to deploy.
+* `--replicas`: Number of compute node replicas to provision if provisioning a new cluster.
 
 #### 3. `cleanup`
 Safely destroys existing development and test clusters.

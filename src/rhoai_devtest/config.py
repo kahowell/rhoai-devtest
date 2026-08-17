@@ -1,6 +1,7 @@
 import sys
 import tomllib
 from pathlib import Path
+from typing import Any
 
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "rhoai-devtest" / "config.toml"
 
@@ -17,7 +18,7 @@ subnet_pairs = [
 """
 
 
-def has_placeholders(config: dict) -> bool:
+def has_placeholders(config: dict[str, Any]) -> bool:
     placeholders = ["REPLACE_WITH_", "AWS_ACCOUNT_ID"]
 
     def check_val(val) -> bool:
@@ -30,7 +31,7 @@ def has_placeholders(config: dict) -> bool:
     return any(check_val(v) for v in config.values())
 
 
-def load_config() -> dict:
+def load_config() -> dict[str, Any]:
     if not DEFAULT_CONFIG_PATH.exists():
         print(f"Config file not found at {DEFAULT_CONFIG_PATH}. Creating default configuration with placeholders...")
         try:

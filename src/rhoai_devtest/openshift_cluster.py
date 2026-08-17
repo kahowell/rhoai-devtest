@@ -2,6 +2,7 @@ import json
 import subprocess
 import sys
 import time
+from typing import Any
 
 from .auth import ensure_authenticated
 from .utils import find_matching_clusters, get_default_match_name, get_latest_rosa_version, get_default_cluster_name
@@ -27,7 +28,14 @@ def _get_cluster_state(name: str, verbose: bool = False) -> str | None:
     return state
 
 
-def create_openshift_cluster(name: str | None, machine_type: str, version: str | None, config: dict, verbose: bool = False) -> str | None:
+def create_openshift_cluster(
+    name: str | None,
+    machine_type: str,
+    version: str | None,
+    config: dict[str, Any],
+    verbose: bool = False,
+    replicas: str | None = None,
+) -> str | None:
     ensure_authenticated(verbose=verbose)
 
     # Determine if we need to use an existing cluster or create a new one.
@@ -79,7 +87,8 @@ def create_openshift_cluster(name: str | None, machine_type: str, version: str |
         print("Missing required infrastructure parameters in configuration file.", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Starting cluster provisioning for '{name}' with machine type '{machine_type}' and OpenShift version '{version}'")
+    replicas_str = f" and replicas '{replicas}'" if replicas else ""
+    print(f"Starting cluster provisioning for '{name}' with machine type '{machine_type}'{replicas_str} and OpenShift version '{version}'")
 
     for pair in subnet_pairs:
         print(f"Trying subnet pair: {pair}")
@@ -97,6 +106,8 @@ def create_openshift_cluster(name: str | None, machine_type: str, version: str |
             f"--worker-iam-role={worker_role}",
             f"--version={version}"
         ]
+        if replicas is not None:
+            cmd.append(f"--replicas={replicas}")
         if verbose:
             print(f"[DEBUG] Running command: {' '.join(cmd)}")
 

@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import sys
+from typing import Any
 
 from .auth import ensure_authenticated
 from .openshift_cluster import create_openshift_cluster
@@ -238,9 +239,10 @@ def handle_rhoai_cluster(
     name: str | None,
     machine_type: str,
     version: str | None,
-    config: dict,
+    config: dict[str, Any],
     verbose: bool = False,
     rhoai_version: str | None = None,
+    replicas: str | None = None,
 ):
     ensure_authenticated(verbose=verbose)
 
@@ -250,6 +252,7 @@ def handle_rhoai_cluster(
         version=version,
         config=config,
         verbose=verbose,
+        replicas=replicas,
     )
     if not target_cluster:
         print("Error: Failed to obtain an OpenShift cluster.", file=sys.stderr)

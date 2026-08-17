@@ -42,6 +42,11 @@ def main():
         default=None,
         help="OpenShift version to deploy (default: latest available)"
     )
+    openshift_parser.add_argument(
+        "--replicas",
+        default=None,
+        help="Number of compute replicas to provision"
+    )
 
     # rhoai-cluster parser
     rhoai_parser = subparsers.add_parser(
@@ -67,6 +72,11 @@ def main():
         "--rhoai-version",
         default=None,
         help="RHOAI version or nightly image reference to deploy (non-quay image/version for specific RHOAI version, quay image for nightly build)"
+    )
+    rhoai_parser.add_argument(
+        "--replicas",
+        default=None,
+        help="Number of compute replicas to provision if provisioning a new cluster"
     )
 
     # cleanup parser
@@ -95,7 +105,8 @@ def main():
             machine_type=args.machine_type,
             version=args.version,
             config=config,
-            verbose=args.verbose
+            verbose=args.verbose,
+            replicas=args.replicas
         )
         if not res:
             sys.exit(1)
@@ -106,7 +117,8 @@ def main():
             version=args.version,
             config=config,
             verbose=args.verbose,
-            rhoai_version=args.rhoai_version
+            rhoai_version=args.rhoai_version,
+            replicas=args.replicas
         )
     elif args.command == "cleanup":
         handle_cleanup(
