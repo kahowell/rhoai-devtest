@@ -1,0 +1,20 @@
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceService
+metadata:
+  name: facebook-opt-125m-single
+spec:
+  model:
+    uri: hf://facebook/opt-125m
+    name: facebook/opt-125m
+  tracing:
+    exporterEndpoint: 'http://data-science-collector.redhat-ods-monitoring.svc.cluster.local:4317'
+    sampler: always_on
+  replicas: 1
+  router:
+    scheduler: { }
+    route: { }
+    gateway: { }
+  template:
+    containers:
+      - name: main
+        image: registry.redhat.io/rhaii/vllm-cpu-rhel9:3.4.1-1780356811
