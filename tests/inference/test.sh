@@ -4,6 +4,7 @@ oc apply -f gatewayclass.yaml
 oc apply -f dsci.yaml
 oc apply -f kuadrant.yaml
 oc apply -f dsc.yaml
+oc apply -f lgtm.yaml
 ./authorino.sh
 ./maas-gateway.sh
 ./postgres.sh
