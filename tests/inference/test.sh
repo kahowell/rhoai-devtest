@@ -5,6 +5,8 @@ oc apply -f dsci.yaml
 oc apply -f kuadrant.yaml
 oc apply -f dsc.yaml
 oc apply -f lgtm.yaml
+# hack: networkpolicy to allow otlp from all ns
+oc apply -f networkpolicy.yaml
 ./authorino.sh
 ./maas-gateway.sh
 ./postgres.sh
