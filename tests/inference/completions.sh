@@ -9,7 +9,7 @@ API_KEY_RESPONSE=$(curl -sSk \
 API_KEY=$(echo $API_KEY_RESPONSE | jq -r .key) && \
 echo "API key obtained: ${API_KEY:0:20}..."
 
-MODELS=$(curl -sSk ${HOST}/maas-api/v1/models \
+MODELS=$(curl -vsSk ${MAAS_API_URL}/maas-api/v1/models \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $API_KEY" | jq -r .)
 
