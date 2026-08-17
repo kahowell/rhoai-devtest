@@ -10,3 +10,7 @@ oc apply -f dsc.yaml
 oc apply -f ai-gateway.yaml
 oc apply -f llmisvc.yaml
 oc apply -f coo-uiplugins.yaml
+oc apply -f maastenant.yaml
+oc apply -f maasauthpolicy.yaml
+oc apply -f maasmodelref.yaml
+oc apply -f maassubscription.yaml
