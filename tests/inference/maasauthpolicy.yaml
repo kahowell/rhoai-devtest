@@ -1,13 +1,14 @@
 apiVersion: maas.opendatahub.io/v1alpha1
 kind: MaaSAuthPolicy
 metadata:
-  name: simulator-access
+  name: single-access
+  namespace: models-as-a-service
   annotations:
     openshift.io/display-name: "Simulator Access (Free)"
     openshift.io/description: "Grants all authenticated users access to the free-tier simulator model"
 spec:
   modelRefs:
-    - name: facebook-opt-125m-simulated
+    - name: facebook-opt-125m-single
       namespace: default
   subjects:
     groups:
