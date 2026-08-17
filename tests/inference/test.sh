@@ -14,3 +14,4 @@ oc apply -f maastenant.yaml
 oc apply -f maasauthpolicy.yaml
 oc apply -f maasmodelref.yaml
 oc apply -f maassubscription.yaml
+./completions.sh
