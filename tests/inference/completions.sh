@@ -25,7 +25,7 @@ API_KEY_RESPONSE=$(curl -sSk \
   -d '{"name": "validation-key", "description": "Key for validation", "expiresIn": "1h", "subscription": "facebook-opt-125m-cpu-subscription"}' \
   "${MAAS_API_URL}/maas-api/v1/api-keys")
 
-API_KEY=$(echo "$API_KEY_RESPONSE" | jq -r .key)
+API_KEY=$(echo "$API_KEY_RESPONSE" | jq -r .key || echo "")
 if [ -z "$API_KEY" ] || [ "$API_KEY" = "null" ]; then
   echo "Error: Failed to obtain a valid API key." >&2
   echo "Response received: $API_KEY_RESPONSE" >&2

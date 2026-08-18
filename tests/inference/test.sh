@@ -18,7 +18,21 @@ wait_for_endpoints() {
   echo "Endpoints for $svc_name are ready!"
 }
 
+# Wait for custom resource definitions (CRDs) to be established before applying custom resources
+wait_for_crd() {
+  local crd_name=$1
+  echo "Waiting for CRD $crd_name to be created..."
+  until oc get crd "$crd_name" &>/dev/null; do
+    sleep 2
+  done
+  echo "Waiting for CRD $crd_name to be established..."
+  oc wait --for=condition=Established crd/"$crd_name" --timeout=300s
+}
+
+wait_for_crd "gatewayclasses.gateway.networking.k8s.io"
 oc apply -f gatewayclass.yaml
+
+wait_for_crd "dscinitializations.dscinitialization.opendatahub.io"
 oc apply -f dsci.yaml
 
 echo "Waiting for DSCI default-dsci to be Ready..."
@@ -27,6 +41,7 @@ until oc get dsci default-dsci &>/dev/null; do
 done
 oc wait --for=condition=Ready dsci/default-dsci --timeout=300s
 
+wait_for_crd "kuadrants.kuadrant.io"
 oc apply -f kuadrant.yaml
 
 echo "Waiting for rhods-operator deployment in redhat-ods-operator namespace..."
@@ -34,6 +49,7 @@ oc wait --for=condition=Available deployment/rhods-operator -n redhat-ods-operat
 
 wait_for_endpoints "rhods-operator-service" "redhat-ods-operator"
 
+wait_for_crd "datascienceclusters.datasciencecluster.opendatahub.io"
 oc apply -f dsc.yaml
 
 echo "Waiting for DSC default-dsc to be Ready..."
@@ -61,24 +77,17 @@ oc wait --for=condition=Available deployment/authorino -n kuadrant-system --time
 ./authorino.sh
 ./maas-gateway.sh
 ./postgres.sh
+wait_for_crd "gateways.gateway.networking.k8s.io"
 oc apply -f ai-gateway.yaml
 
-# Wait for custom resource definitions (CRDs) to be established before applying custom resources
-wait_for_crd() {
-  local crd_name=$1
-  echo "Waiting for CRD $crd_name to be created..."
-  until oc get crd "$crd_name" &>/dev/null; do
-    sleep 2
-  done
-  echo "Waiting for CRD $crd_name to be established..."
-  oc wait --for=condition=Established crd/"$crd_name" --timeout=300s
-}
+# Custom resource definitions (CRDs) are waited for via wait_for_crd
 
 wait_for_crd "llminferenceservices.serving.kserve.io"
 wait_for_endpoints "kserve-webhook-server-service" "redhat-ods-applications"
 wait_for_endpoints "llmisvc-webhook-server-service" "redhat-ods-applications"
 oc apply -f llmisvc.yaml
 
+wait_for_crd "uiplugins.observability.openshift.io"
 oc apply -f coo-uiplugins.yaml
 
 wait_for_crd "tenants.maas.opendatahub.io"
