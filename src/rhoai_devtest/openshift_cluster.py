@@ -1,4 +1,7 @@
 import json
+import os
+import secrets
+import string
 import subprocess
 import sys
 import time
@@ -6,6 +9,70 @@ from typing import Any
 
 from .auth import ensure_authenticated
 from .utils import find_matching_clusters, get_default_match_name, get_latest_rosa_version, get_default_cluster_name
+
+
+def setup_htpasswd_idp(cluster_name: str, verbose: bool = False) -> None:
+    # 1. Generate randomized password
+    alphabet = string.ascii_letters + string.digits
+    password = "".join(secrets.choice(alphabet) for _ in range(20))
+
+    print(f"Configuring htpasswd identity provider for cluster '{cluster_name}'...")
+
+    # 2. Save password locally
+    password_dir = os.path.expanduser("~/.kube")
+    password_file = os.path.join(password_dir, f"rosa_htpasswd_password_{cluster_name}")
+    try:
+        os.makedirs(password_dir, exist_ok=True)
+        with open(password_file, "w") as f:
+            f.write(password)
+        # Set file permissions to 600 (read/write by owner only) for security
+        os.chmod(password_file, 0o600)
+        if verbose:
+            print(f"[DEBUG] Saved generated password to '{password_file}'")
+    except OSError as e:
+        print(f"Warning: Failed to save password to file '{password_file}': {e}", file=sys.stderr)
+
+    # 3. Create IDP command
+    create_cmd = [
+        "rosa", "create", "idp",
+        "-c", cluster_name,
+        "--type=htpasswd",
+        "--name=htpasswd-idp",
+        f"--users=cluster-admin:{password}",
+        "-y"
+    ]
+    if verbose:
+        safe_cmd = [f"--users=cluster-admin:******" if arg.startswith("--users=") else arg for arg in create_cmd]
+        print(f"[DEBUG] Running command: {' '.join(safe_cmd)}")
+
+    res = subprocess.run(create_cmd, capture_output=True, text=True, check=False)
+    if res.returncode != 0:
+        print(f"Error: Failed to create htpasswd identity provider: {res.stderr.strip()}", file=sys.stderr)
+        sys.exit(1)
+    else:
+        print("Successfully created htpasswd identity provider.")
+
+    # 4. Grant cluster-admin to cluster-admin user
+    grant_cmd = [
+        "rosa", "grant", "user", "cluster-admin",
+        "--user=cluster-admin",
+        "-c", cluster_name
+    ]
+    if verbose:
+        print(f"[DEBUG] Running command: {' '.join(grant_cmd)}")
+
+    grant_res = subprocess.run(grant_cmd, capture_output=True, text=True, check=False)
+    if grant_res.returncode != 0:
+        stderr_msg = grant_res.stderr.strip()
+        stdout_msg = grant_res.stdout.strip()
+        if "already" in stderr_msg.lower() or "already" in stdout_msg.lower():
+            if verbose:
+                print(f"[DEBUG] User 'cluster-admin' already has cluster-admin access: {stderr_msg or stdout_msg}")
+        else:
+            print(f"Error: Failed to grant cluster-admin access to 'cluster-admin' user:\n{stderr_msg}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        print(f"Successfully granted cluster-admin access to user 'cluster-admin' on cluster '{cluster_name}'.")
 
 
 def _get_cluster_state(name: str, verbose: bool = False) -> str | None:
@@ -146,6 +213,7 @@ def create_openshift_cluster(
                 print(f"Cluster '{name}' state: '{state}'")
                 if state == "ready":
                     print(f"Cluster '{name}' is ready!")
+                    setup_htpasswd_idp(name, verbose=verbose)
                     return name
                 elif state in ("error", "failed", "uninstalling"):
                     print(f"Cluster '{name}' entered a failed state: '{state}'.", file=sys.stderr)

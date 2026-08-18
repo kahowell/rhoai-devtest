@@ -195,6 +195,33 @@ def ensure_kubeconfig_setup(target_cluster: str, verbose: bool = False) -> str |
 
     if login_required:
         print(f"Local kubeconfig is not configured for cluster API '{api_url}'. Initiating login...")
+
+        # Check if we have a saved htpasswd password for cluster-admin
+        password_file = os.path.expanduser(f"~/.kube/rosa_htpasswd_password_{target_cluster}")
+        password = None
+        if os.path.exists(password_file):
+            try:
+                with open(password_file, "r") as f:
+                    password = f.read().strip()
+            except OSError as e:
+                if verbose:
+                    print(f"[DEBUG] Error reading password file '{password_file}': {e}")
+
+        if password:
+            print(f"Logging in to {api_url} as 'cluster-admin' using saved password...")
+            login_res = subprocess.run(
+                ["oc", "login", "--username=cluster-admin", f"--password={password}", f"--server={api_url}"],
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            if login_res.returncode == 0:
+                print("Successfully authenticated and configured local kubeconfig.")
+                return console_url
+            else:
+                print(f"Warning: OpenShift login with password failed: {login_res.stderr.strip() or login_res.stdout.strip()}", file=sys.stderr)
+                print("Falling back to token login...")
+
         # 3. To login, use `xdg-open` against oauth url (derive oauth url -> api_url.replace('api.', 'oauth.') + /oauth/token/request).
         oauth_url = api_url.replace("api.", "oauth.")
         oauth_url = oauth_url.rstrip("/") + "/oauth/token/request"
