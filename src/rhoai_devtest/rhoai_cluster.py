@@ -4,6 +4,7 @@ import re
 import subprocess
 import sys
 import html
+import time
 from typing import Any
 import urllib.parse
 
@@ -167,127 +168,146 @@ def _login_via_web_form(api_url: str, password: str, verbose: bool = False) -> s
         f"&response_type=code"
         f"&redirect_uri={oauth_redirect}"
     )
-    print(f"Requesting direct IDP authorization URL: {direct_authorize_url}")
 
-    try:
-        # 1. Prepare requests Session and Headers
-        session = requests.Session()
-        headers = {
-            #"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
+    start_time = time.time()
+    timeout = 300  # 5 minutes
+    interval = 15  # seconds
+    attempt = 1
 
-        # 2. Perform GET to direct_authorize_url to load the form and follow redirects
-        response = session.get(direct_authorize_url, headers=headers)
-        html_content = response.text
-        final_url = response.url
+    while True:
+        try:
+            if verbose:
+                print(f"[DEBUG] Web-form login attempt #{attempt}...")
+            print(f"Requesting direct IDP authorization URL: {direct_authorize_url}")
 
-        if verbose:
-            print(f"[DEBUG] Redirected final login form URL: {final_url}")
+            # 1. Prepare requests Session and Headers
+            session = requests.Session()
+            headers: dict[str, str] = {}
 
-        # 3. Extract csrf and then tokens
-        csrf_match = (
-            re.search(r'name=["\']csrf["\'][\s\S]*?value=["\']([^"\']+)["\']', html_content) or
-            re.search(r'value=["\']([^"\']+)["\'][\s\S]*?name=["\']csrf["\']', html_content)
-        )
-        then_match = (
-            re.search(r'name=["\']then["\'][\s\S]*?value=["\']([^"\']+)["\']', html_content) or
-            re.search(r'value=["\']([^"\']+)["\'][\s\S]*?name=["\']then["\']', html_content)
-        )
+            # 2. Perform GET to direct_authorize_url to load the form and follow redirects
+            response = session.get(direct_authorize_url, headers=headers, timeout=30)
+            response.raise_for_status()
+            html_content = response.text
+            final_url = response.url
 
-        if not csrf_match:
-            print("Error: CSRF token not found in form HTML.", file=sys.stderr)
-            return None
-        if not then_match:
-            print("Error: 'then' token not found in form HTML.", file=sys.stderr)
-            return None
+            if verbose:
+                print(f"[DEBUG] Redirected final login form URL: {final_url}")
 
-        csrf_token = csrf_match.group(1)
-        then_val = html.unescape(then_match.group(1))
+            # 3. Extract csrf and then tokens
+            csrf_match = (
+                re.search(r'name=["\']csrf["\'][\s\S]*?value=["\']([^"\']+)["\']', html_content) or
+                re.search(r'value=["\']([^"\']+)["\'][\s\S]*?name=["\']csrf["\']', html_content)
+            )
+            then_match = (
+                re.search(r'name=["\']then["\'][\s\S]*?value=["\']([^"\']+)["\']', html_content) or
+                re.search(r'value=["\']([^"\']+)["\'][\s\S]*?name=["\']then["\']', html_content)
+            )
 
-        print("Extracted login token and CSRF metadata successfully.")
+            if not csrf_match:
+                raise ValueError("CSRF token not found in form HTML.")
+            if not then_match:
+                raise ValueError("'then' token not found in form HTML.")
 
-        if verbose:
-            print(f"[DEBUG] Extracted CSRF token: {csrf_token[:10]}...")
-            print(f"[DEBUG] Extracted then token: {then_val[:10]}...")
+            csrf_token = csrf_match.group(1)
+            then_val = html.unescape(then_match.group(1))
 
-        # 4. Resolve the form action URL relative to final_url
-        action_match = re.search(r'<form\s+[^>]*action=["\']([^"\']+)["\']', html_content)
-        action = action_match.group(1) if action_match else "/login"
-        login_url = urllib.parse.urljoin(final_url, action)
+            print("Extracted login token and CSRF metadata successfully.")
 
-        if verbose:
-            print(f"[DEBUG] Submitting form to: {login_url}")
+            if verbose:
+                print(f"[DEBUG] Extracted CSRF token: {csrf_token[:10]}...")
+                print(f"[DEBUG] Extracted then token: {then_val[:10]}...")
 
-        # 5. Submit POST to login_url
-        payload = {
-            "username": "admin",
-            "password": password,
-            "csrf": csrf_token,
-            "then": then_val
-        }
+            # 4. Resolve the form action URL relative to final_url
+            action_match = re.search(r'<form\s+[^>]*action=["\']([^"\']+)["\']', html_content)
+            action = action_match.group(1) if action_match else "/login"
+            login_url = urllib.parse.urljoin(final_url, action)
 
-        print(f"Submitting credentials POST to: {login_url}")
-        if verbose:
-            safe_payload = {k: "******" if k == "password" else v for k, v in payload.items()}
-            print(f"[DEBUG] POST Payload: {safe_payload}")
+            if verbose:
+                print(f"[DEBUG] Submitting form to: {login_url}")
 
-        post_response = session.post(login_url, data=payload, headers=headers)
-        post_html = post_response.text
+            # 5. Submit POST to login_url
+            payload = {
+                "username": "admin",
+                "password": password,
+                "csrf": csrf_token,
+                "then": then_val
+            }
 
-        if verbose:
-            print("[DEBUG] Processing intermediate login page...")
+            print(f"Submitting credentials POST to: {login_url}")
+            if verbose:
+                safe_payload = {k: "******" if k == "password" else v for k, v in payload.items()}
+                print(f"[DEBUG] POST Payload: {safe_payload}")
 
-        # Extract csrf and code values from the intermediate login page
-        csrf_match_2 = (
-            re.search(r'name=["\']csrf["\'][\s\S]*?value=["\']([^"\']+)["\']', post_html) or
-            re.search(r'value=["\']([^"\']+)["\'][\s\S]*?name=["\']csrf["\']', post_html)
-        )
-        code_match = (
-            re.search(r'name=["\']code["\'][\s\S]*?value=["\']([^"\']+)["\']', post_html) or
-            re.search(r'value=["\']([^"\']+)["\'][\s\S]*?name=["\']code["\']', post_html)
-        )
+            post_response = session.post(login_url, data=payload, headers=headers, timeout=30)
+            post_response.raise_for_status()
+            post_html = post_response.text
 
-        if not csrf_match_2 or not code_match:
-            print("Error: Could not extract intermediate csrf or code tokens.", file=sys.stderr)
-            return None
+            if verbose:
+                print("[DEBUG] Processing intermediate login page...")
 
-        csrf_token_2 = csrf_match_2.group(1)
-        code_val = html.unescape(code_match.group(1))
+            # Extract csrf and code values from the intermediate login page
+            csrf_match_2 = (
+                re.search(r'name=["\']csrf["\'][\s\S]*?value=["\']([^"\']+)["\']', post_html) or
+                re.search(r'value=["\']([^"\']+)["\'][\s\S]*?name=["\']csrf["\']', post_html)
+            )
+            code_match = (
+                re.search(r'name=["\']code["\'][\s\S]*?value=["\']([^"\']+)["\']', post_html) or
+                re.search(r'value=["\']([^"\']+)["\'][\s\S]*?name=["\']code["\']', post_html)
+            )
 
-        # Resolve the secondary form action URL relative to the post_response URL
-        action_match_2 = re.search(r'<form\s+[^>]*action=["\']([^"\']+)["\']', post_html)
-        action_2 = action_match_2.group(1) if action_match_2 else "/oauth/authorize"
-        approval_url = urllib.parse.urljoin(post_response.url, action_2)
+            if not csrf_match_2 or not code_match:
+                raise ValueError("Could not extract intermediate csrf or code tokens.")
 
-        approval_payload = {
-            "csrf": csrf_token_2,
-            "code": code_val
-        }
+            csrf_token_2 = csrf_match_2.group(1)
+            code_val = html.unescape(code_match.group(1))
 
-        print(f"Submitting confirmation POST to: {approval_url}")
-        final_response = session.post(approval_url, data=approval_payload, headers=headers)
-        final_html = final_response.text
+            # Resolve the secondary form action URL relative to the post_response URL
+            action_match_2 = re.search(r'<form\s+[^>]*action=["\']([^"\']+)["\']', post_html)
+            action_2 = action_match_2.group(1) if action_match_2 else "/oauth/authorize"
+            approval_url = urllib.parse.urljoin(post_response.url, action_2)
 
-        if verbose:
-            print("--- Post-Login HTML start ---")
-            print(final_html)
-            print("--- Post-Login HTML end ---")
+            approval_payload = {
+                "csrf": csrf_token_2,
+                "code": code_val
+            }
 
-        # 6. Extract token starting with sha256~
-        token_match = re.search(r'sha256~[A-Za-z0-9_-]+', final_html)
-        if not token_match:
-            print("Error: OpenShift session token ('sha256~...') not found in post-login response HTML.", file=sys.stderr)
-            return None
+            # If this is the approval page, we must supply the decision="allow" parameter.
+            # If it's already authorized, the page is /oauth/token/display which throws 500 if "decision" is present.
+            if "decision" in post_html or "/authorize" in approval_url:
+                approval_payload["decision"] = "allow"
+                if verbose:
+                    print("[DEBUG] Approval/decision required. Appending 'decision': 'allow' to payload.")
 
-        token = token_match.group(0)
-        print("Successfully authenticated and extracted session token.")
-        if verbose:
-            print(f"[DEBUG] Successfully extracted OpenShift login token: {token[:15]}...")
-        return token
+            print(f"Submitting confirmation POST to: {approval_url}")
+            final_response = session.post(approval_url, data=approval_payload, headers=headers, timeout=30)
+            final_response.raise_for_status()
+            final_html = final_response.text
 
-    except Exception as e:
-        print(f"Warning: Web-form login failed: {e}", file=sys.stderr)
-        return None
+            if verbose:
+                print("--- Post-Login HTML start ---")
+                print(final_html)
+                print("--- Post-Login HTML end ---")
+
+            # 6. Extract token starting with sha256~
+            token_match = re.search(r'sha256~[A-Za-z0-9_-]+', final_html)
+            if not token_match:
+                raise ValueError("OpenShift session token ('sha256~...') not found in post-login response HTML.")
+
+            token = token_match.group(0)
+            print("Successfully authenticated and extracted session token.")
+            if verbose:
+                print(f"[DEBUG] Successfully extracted OpenShift login token: {token[:15]}...")
+            return token
+
+        except Exception as e:
+            elapsed = time.time() - start_time
+            if elapsed >= timeout:
+                print(f"Error: Web-form login failed after retrying for {int(elapsed)} seconds: {e}", file=sys.stderr)
+                return None
+
+            print(f"Warning: Web-form login attempt #{attempt} failed: {e}. Retrying in {interval} seconds... (Elapsed: {int(elapsed)}s/{timeout}s)", file=sys.stderr)
+            time.sleep(interval)
+            attempt += 1
 
 
 def ensure_kubeconfig_setup(target_cluster: str, verbose: bool = False) -> str | None:
