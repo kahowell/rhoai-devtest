@@ -1,7 +1,5 @@
 import json
 import os
-import secrets
-import string
 import subprocess
 import sys
 import time
@@ -13,8 +11,17 @@ from .utils import find_matching_clusters, get_default_match_name, get_latest_ro
 
 def setup_htpasswd_idp(cluster_name: str, verbose: bool = False) -> None:
     # 1. Generate randomized password
-    alphabet = string.ascii_letters + string.digits
-    password = "".join(secrets.choice(alphabet) for _ in range(20))
+    try:
+        password_res = subprocess.run(
+            ["openssl", "rand", "--base64", "32"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        password = password_res.stdout.strip()
+    except (subprocess.SubprocessError, FileNotFoundError) as e:
+        print(f"Error: Failed to generate randomized password using openssl: {e}", file=sys.stderr)
+        sys.exit(1)
 
     print(f"Configuring htpasswd identity provider for cluster '{cluster_name}'...")
 
