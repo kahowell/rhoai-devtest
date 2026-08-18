@@ -1,22 +1,61 @@
-CLUSTER_DOMAIN=$(kubectl get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}')
+#!/bin/bash
+set -euo pipefail
+
+# Retrieve cluster domain
+CLUSTER_DOMAIN=$(kubectl get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)
+if [ -z "$CLUSTER_DOMAIN" ]; then
+  echo "Error: Failed to retrieve CLUSTER_DOMAIN. Is kubectl configured and logged in?" >&2
+  exit 1
+fi
+
 MAAS_API_URL="https://maas.${CLUSTER_DOMAIN}"
+
+# Obtain OpenShift token
+OC_TOKEN=$(oc whoami -t 2>/dev/null || true)
+if [ -z "$OC_TOKEN" ]; then
+  echo "Error: Failed to obtain OpenShift token. Are you logged in via 'oc'?" >&2
+  exit 1
+fi
+
+echo "Obtaining API key..."
 API_KEY_RESPONSE=$(curl -sSk \
-  -H "Authorization: Bearer $(oc whoami -t)" \
+  -H "Authorization: Bearer ${OC_TOKEN}" \
   -H "Content-Type: application/json" \
   -X POST \
   -d '{"name": "validation-key", "description": "Key for validation", "expiresIn": "1h", "subscription": "facebook-opt-125m-cpu-subscription"}' \
-  "${MAAS_API_URL}/maas-api/v1/api-keys") && \
-API_KEY=$(echo $API_KEY_RESPONSE | jq -r .key) && \
+  "${MAAS_API_URL}/maas-api/v1/api-keys")
+
+API_KEY=$(echo "$API_KEY_RESPONSE" | jq -r .key)
+if [ -z "$API_KEY" ] || [ "$API_KEY" = "null" ]; then
+  echo "Error: Failed to obtain a valid API key." >&2
+  echo "Response received: $API_KEY_RESPONSE" >&2
+  exit 1
+fi
+
 echo "API key obtained: ${API_KEY:0:20}..."
 
-MODELS=$(curl -vsSk ${MAAS_API_URL}/maas-api/v1/models \
+echo "Fetching models..."
+MODELS=$(curl -sSk "${MAAS_API_URL}/maas-api/v1/models" \
     -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $API_KEY" | jq -r .)
+    -H "Authorization: Bearer $API_KEY")
 
-MODEL_URL=$(echo $MODELS | jq -r '.data[0].url') && \
+if [ -z "$MODELS" ] || [ "$MODELS" = "null" ]; then
+  echo "Error: Failed to fetch models list." >&2
+  exit 1
+fi
+
+MODEL_URL=$(echo "$MODELS" | jq -r '.data[0].url')
+if [ -z "$MODEL_URL" ] || [ "$MODEL_URL" = "null" ]; then
+  echo "Error: Failed to obtain model URL." >&2
+  echo "Models response was:" >&2
+  echo "$MODELS" | jq . >&2
+  exit 1
+fi
+
 echo "Model URL: $MODEL_URL"
 
-curl -k $MODEL_URL/v1/completions \
+echo "Sending completions request..."
+curl -k "$MODEL_URL/v1/completions" \
 -H "Authorization: Bearer $API_KEY" \
 -H "Content-Type: application/json" \
 -d '{
