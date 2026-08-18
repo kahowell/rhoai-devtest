@@ -6,10 +6,31 @@ import time
 from typing import Any
 
 from .auth import ensure_authenticated
-from .utils import find_matching_clusters, get_default_match_name, get_latest_rosa_version, get_default_cluster_name
+from .utils import find_matching_clusters, get_default_match_name, get_latest_rosa_version, get_default_cluster_name, validate_rosa_version
 
 
-def setup_htpasswd_idp(cluster_name: str, verbose: bool = False) -> None:
+def setup_htpasswd_idp(cluster_name: str | None, verbose: bool = False) -> None:
+    if cluster_name is None:
+        search_pattern = get_default_match_name()
+        print(f"No cluster name specified. Checking for existing cluster matching '{search_pattern}'...")
+        matching = find_matching_clusters(search_pattern, verbose=verbose)
+
+        valid_matching = []
+        for cname in matching:
+            state = _get_cluster_state(cname, verbose=verbose)
+            if state == "uninstalling":
+                continue
+            valid_matching.append(cname)
+
+        if not valid_matching:
+            print(f"Error: No existing active clusters found matching '{search_pattern}'.", file=sys.stderr)
+            sys.exit(1)
+
+        target_cluster = valid_matching[0]
+        print(f"Inferred target cluster: '{target_cluster}'")
+    else:
+        target_cluster = cluster_name
+
     # 1. Generate randomized password
     try:
         password_res = subprocess.run(
@@ -23,11 +44,11 @@ def setup_htpasswd_idp(cluster_name: str, verbose: bool = False) -> None:
         print(f"Error: Failed to generate randomized password using openssl: {e}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Configuring htpasswd identity provider for cluster '{cluster_name}'...")
+    print(f"Configuring htpasswd identity provider for cluster '{target_cluster}'...")
 
     # 2. Save password locally
     password_dir = os.path.expanduser("~/.kube")
-    password_file = os.path.join(password_dir, f"rosa_htpasswd_password_{cluster_name}")
+    password_file = os.path.join(password_dir, f"rosa_htpasswd_password_{target_cluster}")
     try:
         os.makedirs(password_dir, exist_ok=True)
         with open(password_file, "w") as f:
@@ -42,14 +63,14 @@ def setup_htpasswd_idp(cluster_name: str, verbose: bool = False) -> None:
     # 3. Create IDP command
     create_cmd = [
         "rosa", "create", "idp",
-        "-c", cluster_name,
+        "-c", target_cluster,
         "--type=htpasswd",
         "--name=htpasswd-idp",
-        f"--users=cluster-admin:{password}",
+        f"--users=admin:{password}",
         "-y"
     ]
     if verbose:
-        safe_cmd = [f"--users=cluster-admin:******" if arg.startswith("--users=") else arg for arg in create_cmd]
+        safe_cmd = [f"--users=admin:******" if arg.startswith("--users=") else arg for arg in create_cmd]
         print(f"[DEBUG] Running command: {' '.join(safe_cmd)}")
 
     res = subprocess.run(create_cmd, capture_output=True, text=True, check=False)
@@ -59,11 +80,11 @@ def setup_htpasswd_idp(cluster_name: str, verbose: bool = False) -> None:
     else:
         print("Successfully created htpasswd identity provider.")
 
-    # 4. Grant cluster-admin to cluster-admin user
+    # 4. Grant cluster-admin to admin user
     grant_cmd = [
         "rosa", "grant", "user", "cluster-admin",
-        "--user=cluster-admin",
-        "-c", cluster_name
+        "--user=admin",
+        "-c", target_cluster
     ]
     if verbose:
         print(f"[DEBUG] Running command: {' '.join(grant_cmd)}")
@@ -74,12 +95,12 @@ def setup_htpasswd_idp(cluster_name: str, verbose: bool = False) -> None:
         stdout_msg = grant_res.stdout.strip()
         if "already" in stderr_msg.lower() or "already" in stdout_msg.lower():
             if verbose:
-                print(f"[DEBUG] User 'cluster-admin' already has cluster-admin access: {stderr_msg or stdout_msg}")
+                print(f"[DEBUG] User 'admin' already has cluster-admin access: {stderr_msg or stdout_msg}")
         else:
-            print(f"Error: Failed to grant cluster-admin access to 'cluster-admin' user:\n{stderr_msg}", file=sys.stderr)
+            print(f"Error: Failed to grant cluster-admin access to 'admin' user:\n{stderr_msg}", file=sys.stderr)
             sys.exit(1)
     else:
-        print(f"Successfully granted cluster-admin access to user 'cluster-admin' on cluster '{cluster_name}'.")
+        print(f"Successfully granted cluster-admin access to user 'admin' on cluster '{target_cluster}'.")
 
 
 def _get_cluster_state(name: str, verbose: bool = False) -> str | None:
@@ -102,6 +123,30 @@ def _get_cluster_state(name: str, verbose: bool = False) -> str | None:
     return state
 
 
+def _get_cluster_version(name: str, verbose: bool = False) -> str | None:
+    desc_cmd = ["rosa", "describe", "cluster", "-c", name, "-o", "json"]
+    if verbose:
+        print(f"[DEBUG] Running command: {' '.join(desc_cmd)}")
+
+    desc_res = subprocess.run(desc_cmd, capture_output=True, text=True, check=False)
+    if desc_res.returncode != 0:
+        return None
+
+    try:
+        cluster_info = json.loads(desc_res.stdout)
+    except json.JSONDecodeError:
+        return None
+
+    version_info = cluster_info.get("version")
+    if isinstance(version_info, dict):
+        cv = version_info.get("raw_id") or version_info.get("id")
+        if cv:
+            return cv.removeprefix("openshift-v")
+    elif isinstance(version_info, str):
+        return version_info.removeprefix("openshift-v")
+    return None
+
+
 def create_openshift_cluster(
     name: str | None,
     machine_type: str,
@@ -111,6 +156,9 @@ def create_openshift_cluster(
     replicas: str | None = None,
 ) -> str | None:
     ensure_authenticated(verbose=verbose)
+
+    if version:
+        validate_rosa_version(version, verbose=verbose)
 
     # Determine if we need to use an existing cluster or create a new one.
     if name is None:
@@ -130,6 +178,18 @@ def create_openshift_cluster(
         if valid_matching:
             target_cluster = valid_matching[0]
             print(f"Using existing cluster '{target_cluster}'.")
+
+            if version:
+                existing_version = _get_cluster_version(target_cluster, verbose=verbose)
+                if existing_version:
+                    clean_requested = version.removeprefix("openshift-v")
+                    clean_existing = existing_version.removeprefix("openshift-v")
+                    if clean_requested != clean_existing:
+                        print(f"Error: Requested OpenShift version '{version}' does not match existing cluster '{target_cluster}' version '{existing_version}'.", file=sys.stderr)
+                        sys.exit(1)
+                else:
+                    print(f"Warning: Could not retrieve OpenShift version of existing cluster '{target_cluster}' for comparison.")
+
             return target_cluster
 
         # No existing cluster found. Fall back to generating a default cluster name to create a new one.
@@ -146,6 +206,18 @@ def create_openshift_cluster(
             print(f"Cluster '{name}' already exists but is in 'uninstalling' state. Ignoring existing cluster.")
         else:
             print(f"Cluster '{name}' already exists. Reusing existing cluster.")
+
+            if version:
+                existing_version = _get_cluster_version(name, verbose=verbose)
+                if existing_version:
+                    clean_requested = version.removeprefix("openshift-v")
+                    clean_existing = existing_version.removeprefix("openshift-v")
+                    if clean_requested != clean_existing:
+                        print(f"Error: Requested OpenShift version '{version}' does not match existing cluster '{name}' version '{existing_version}'.", file=sys.stderr)
+                        sys.exit(1)
+                else:
+                    print(f"Warning: Could not retrieve OpenShift version of existing cluster '{name}' for comparison.")
+
             return name
 
     if not version:

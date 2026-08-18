@@ -1,8 +1,13 @@
 import json
 import os
+import re
 import subprocess
 import sys
+import html
 from typing import Any
+import urllib.parse
+
+import requests
 
 from .auth import ensure_authenticated
 from .openshift_cluster import create_openshift_cluster
@@ -141,6 +146,150 @@ def install_operators(target_cluster: str, verbose: bool = False):
     print("Operators installation completed successfully.")
 
 
+def _login_via_web_form(api_url: str, password: str, verbose: bool = False) -> str | None:
+    """
+    Perform web-form authentication to OpenShift OAuth server,
+    extract the sha256 session token, and return it.
+    """
+    oauth_url = api_url.replace("api.", "oauth.").rstrip("/")
+    parsed_oauth = urllib.parse.urlparse(oauth_url)
+    hostname = parsed_oauth.hostname
+    if not hostname:
+        print(f"Error: Could not parse hostname from oauth_url: {oauth_url}", file=sys.stderr)
+        return None
+
+    oauth_redirect = f"https://{hostname}:443/oauth/token/display"
+
+    direct_authorize_url = (
+        f"https://{hostname}/oauth/authorize"
+        f"?client_id=openshift-browser-client"
+        f"&idp=htpasswd-idp"
+        f"&response_type=code"
+        f"&redirect_uri={oauth_redirect}"
+    )
+    print(f"Requesting direct IDP authorization URL: {direct_authorize_url}")
+
+    try:
+        # 1. Prepare requests Session and Headers
+        session = requests.Session()
+        headers = {
+            #"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+
+        # 2. Perform GET to direct_authorize_url to load the form and follow redirects
+        response = session.get(direct_authorize_url, headers=headers)
+        html_content = response.text
+        final_url = response.url
+
+        if verbose:
+            print(f"[DEBUG] Redirected final login form URL: {final_url}")
+
+        # 3. Extract csrf and then tokens
+        csrf_match = (
+            re.search(r'name=["\']csrf["\'][\s\S]*?value=["\']([^"\']+)["\']', html_content) or
+            re.search(r'value=["\']([^"\']+)["\'][\s\S]*?name=["\']csrf["\']', html_content)
+        )
+        then_match = (
+            re.search(r'name=["\']then["\'][\s\S]*?value=["\']([^"\']+)["\']', html_content) or
+            re.search(r'value=["\']([^"\']+)["\'][\s\S]*?name=["\']then["\']', html_content)
+        )
+
+        if not csrf_match:
+            print("Error: CSRF token not found in form HTML.", file=sys.stderr)
+            return None
+        if not then_match:
+            print("Error: 'then' token not found in form HTML.", file=sys.stderr)
+            return None
+
+        csrf_token = csrf_match.group(1)
+        then_val = html.unescape(then_match.group(1))
+
+        print("Extracted login token and CSRF metadata successfully.")
+
+        if verbose:
+            print(f"[DEBUG] Extracted CSRF token: {csrf_token[:10]}...")
+            print(f"[DEBUG] Extracted then token: {then_val[:10]}...")
+
+        # 4. Resolve the form action URL relative to final_url
+        action_match = re.search(r'<form\s+[^>]*action=["\']([^"\']+)["\']', html_content)
+        action = action_match.group(1) if action_match else "/login"
+        login_url = urllib.parse.urljoin(final_url, action)
+
+        if verbose:
+            print(f"[DEBUG] Submitting form to: {login_url}")
+
+        # 5. Submit POST to login_url
+        payload = {
+            "username": "admin",
+            "password": password,
+            "csrf": csrf_token,
+            "then": then_val
+        }
+
+        print(f"Submitting credentials POST to: {login_url}")
+        if verbose:
+            safe_payload = {k: "******" if k == "password" else v for k, v in payload.items()}
+            print(f"[DEBUG] POST Payload: {safe_payload}")
+
+        post_response = session.post(login_url, data=payload, headers=headers)
+        post_html = post_response.text
+
+        if verbose:
+            print("[DEBUG] Processing intermediate login page...")
+
+        # Extract csrf and code values from the intermediate login page
+        csrf_match_2 = (
+            re.search(r'name=["\']csrf["\'][\s\S]*?value=["\']([^"\']+)["\']', post_html) or
+            re.search(r'value=["\']([^"\']+)["\'][\s\S]*?name=["\']csrf["\']', post_html)
+        )
+        code_match = (
+            re.search(r'name=["\']code["\'][\s\S]*?value=["\']([^"\']+)["\']', post_html) or
+            re.search(r'value=["\']([^"\']+)["\'][\s\S]*?name=["\']code["\']', post_html)
+        )
+
+        if not csrf_match_2 or not code_match:
+            print("Error: Could not extract intermediate csrf or code tokens.", file=sys.stderr)
+            return None
+
+        csrf_token_2 = csrf_match_2.group(1)
+        code_val = html.unescape(code_match.group(1))
+
+        # Resolve the secondary form action URL relative to the post_response URL
+        action_match_2 = re.search(r'<form\s+[^>]*action=["\']([^"\']+)["\']', post_html)
+        action_2 = action_match_2.group(1) if action_match_2 else "/oauth/authorize"
+        approval_url = urllib.parse.urljoin(post_response.url, action_2)
+
+        approval_payload = {
+            "csrf": csrf_token_2,
+            "code": code_val
+        }
+
+        print(f"Submitting confirmation POST to: {approval_url}")
+        final_response = session.post(approval_url, data=approval_payload, headers=headers)
+        final_html = final_response.text
+
+        if verbose:
+            print("--- Post-Login HTML start ---")
+            print(final_html)
+            print("--- Post-Login HTML end ---")
+
+        # 6. Extract token starting with sha256~
+        token_match = re.search(r'sha256~[A-Za-z0-9_-]+', final_html)
+        if not token_match:
+            print("Error: OpenShift session token ('sha256~...') not found in post-login response HTML.", file=sys.stderr)
+            return None
+
+        token = token_match.group(0)
+        print("Successfully authenticated and extracted session token.")
+        if verbose:
+            print(f"[DEBUG] Successfully extracted OpenShift login token: {token[:15]}...")
+        return token
+
+    except Exception as e:
+        print(f"Warning: Web-form login failed: {e}", file=sys.stderr)
+        return None
+
+
 def ensure_kubeconfig_setup(target_cluster: str, verbose: bool = False) -> str | None:
     """
     Ensure the local kubeconfig is configured for the target cluster.
@@ -208,19 +357,25 @@ def ensure_kubeconfig_setup(target_cluster: str, verbose: bool = False) -> str |
                     print(f"[DEBUG] Error reading password file '{password_file}': {e}")
 
         if password:
-            print(f"Logging in to {api_url} as 'cluster-admin' using saved password...")
-            login_res = subprocess.run(
-                ["oc", "login", "--username=cluster-admin", f"--password={password}", f"--server={api_url}"],
-                capture_output=True,
-                text=True,
-                check=False
-            )
-            if login_res.returncode == 0:
-                print("Successfully authenticated and configured local kubeconfig.")
-                return console_url
+            print(f"Attempting programmatic web-form login to {api_url} as 'admin'...")
+            token = _login_via_web_form(api_url, password, verbose=verbose)
+            if token:
+                print(f"Logging in to {api_url} with extracted session token...")
+                login_res = subprocess.run(
+                    ["oc", "login", f"--token={token}", f"--server={api_url}"],
+                    capture_output=True,
+                    text=True,
+                    check=False
+                )
+                if login_res.returncode == 0:
+                    print("Successfully authenticated and configured local kubeconfig.")
+                    return console_url
+                else:
+                    print(f"Warning: OpenShift login with extracted token failed: {login_res.stderr.strip() or login_res.stdout.strip()}", file=sys.stderr)
             else:
-                print(f"Warning: OpenShift login with password failed: {login_res.stderr.strip() or login_res.stdout.strip()}", file=sys.stderr)
-                print("Falling back to token login...")
+                print("Warning: Failed to extract session token via programmatic login.", file=sys.stderr)
+
+            print("Falling back to manual token login...")
 
         # 3. To login, use `xdg-open` against oauth url (derive oauth url -> api_url.replace('api.', 'oauth.') + /oauth/token/request).
         oauth_url = api_url.replace("api.", "oauth.")

@@ -52,6 +52,38 @@ def get_latest_rosa_version(verbose: bool = False) -> str:
         sys.exit(1)
 
 
+def validate_rosa_version(version: str, verbose: bool = False) -> None:
+    print(f"Validating OpenShift version '{version}' against available ROSA versions...")
+    try:
+        result = subprocess.run(
+            ["rosa", "list", "versions", "-o", "json"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        versions_data = json.loads(result.stdout)
+        available = set()
+        for v in versions_data:
+            if isinstance(v, dict) and "id" in v:
+                raw_id = v["id"]
+                available.add(raw_id)
+                available.add(raw_id.removeprefix("openshift-v"))
+
+        if version not in available:
+            print(f"Error: OpenShift version '{version}' is not available in ROSA.", file=sys.stderr)
+            print("Available ROSA versions:", file=sys.stderr)
+            clean_versions = sorted({v.removeprefix("openshift-v") for v in available}, key=parse_version)
+            for cv in clean_versions:
+                print(f"  - {cv}", file=sys.stderr)
+            sys.exit(1)
+
+        if verbose:
+            print(f"[DEBUG] OpenShift version '{version}' is valid.")
+    except (subprocess.SubprocessError, json.JSONDecodeError, ValueError) as e:
+        print(f"Error querying ROSA versions for validation: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
 def find_matching_clusters(pattern: str, verbose: bool = False) -> list[str]:
     try:
         res = subprocess.run(["rosa", "list", "cluster", "-o", "json"], capture_output=True, text=True, check=False)

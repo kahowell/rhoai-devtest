@@ -3,7 +3,7 @@ import sys
 
 from .cleanup import handle_cleanup
 from .config import load_config
-from .openshift_cluster import create_openshift_cluster
+from .openshift_cluster import create_openshift_cluster, setup_htpasswd_idp
 from .rhoai_cluster import handle_rhoai_cluster
 from .utils import get_default_match_name
 
@@ -95,6 +95,17 @@ def main():
         help="Bypass confirmation prompt and delete clusters automatically"
     )
 
+    # setup-idp parser
+    setup_idp_parser = subparsers.add_parser(
+        "setup-idp",
+        help="Configure htpasswd identity provider and grant cluster-admin on an existing cluster"
+    )
+    setup_idp_parser.add_argument(
+        "--name",
+        default=None,
+        help="Name of the existing cluster (default: infer from username)"
+    )
+
     args = parser.parse_args()
 
     config = load_config()
@@ -124,6 +135,11 @@ def main():
         handle_cleanup(
             name_pattern=args.name,
             yes_bypass=args.yes,
+            verbose=args.verbose
+        )
+    elif args.command == "setup-idp":
+        setup_htpasswd_idp(
+            cluster_name=args.name,
             verbose=args.verbose
         )
 

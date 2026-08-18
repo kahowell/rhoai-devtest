@@ -323,11 +323,15 @@ name = "rhoai-devtest"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "requests" },
     { name = "rh-aws-saml-login" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "rh-aws-saml-login" }]
+requires-dist = [
+    { name = "requests", specifier = ">=2.34.2" },
+    { name = "rh-aws-saml-login" },
+]
 
 [[package]]
 name = "rich"
