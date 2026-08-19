@@ -17,6 +17,13 @@ if [ -z "$OC_TOKEN" ]; then
   exit 1
 fi
 
+echo "Waiting for MaaSSubscription facebook-opt-125m-cpu-subscription to be Active..."
+until oc get maassubscription -n models-as-a-service facebook-opt-125m-cpu-subscription &>/dev/null; do
+  echo "MaaSSubscription does not exist yet. Waiting..."
+  sleep 2
+done
+oc wait --for=jsonpath='{.status.phase}'=Active maassubscription/facebook-opt-125m-cpu-subscription -n models-as-a-service --timeout=300s
+
 echo "Obtaining API key..."
 API_KEY_RESPONSE=$(curl -sSk \
   -H "Authorization: Bearer ${OC_TOKEN}" \
