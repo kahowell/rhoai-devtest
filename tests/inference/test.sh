@@ -58,6 +58,9 @@ until oc get dsc default-dsc &>/dev/null; do
 done
 oc wait --for=condition=Ready dsc/default-dsc --timeout=300s
 
+if ! oc get secret oauth-proxy-secrets -n redhat-ods-monitoring &>/dev/null; then
+  oc create secret generic oauth-proxy-secrets -n redhat-ods-monitoring --from-literal=session_secret="$(openssl rand -base64 32)"
+fi
 oc apply -f lgtm.yaml
 
 # hack: networkpolicy to allow otlp from all ns
@@ -102,5 +105,10 @@ oc apply -f maasmodelref.yaml
 
 wait_for_crd "maassubscriptions.maas.opendatahub.io"
 oc apply -f maassubscription.yaml
+
+echo "Waiting for route lgtm in redhat-ods-monitoring namespace..."
+oc wait --for=jsonpath='{.spec.host}' route/lgtm -n redhat-ods-monitoring --timeout=300s
+LGTM_HOST=$(oc get route lgtm -n redhat-ods-monitoring -o jsonpath='{.spec.host}')
+echo "LGTM URL: https://${LGTM_HOST}"
 
 ./completions.sh
