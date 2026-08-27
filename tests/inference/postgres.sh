@@ -1,7 +1,7 @@
 #!/bin/bash
 oc -n redhat-ods-applications get secret postgresql >/dev/null
 if [ $? -gt 0 ]; then
-  POSTGRES_PASSWORD=$(openssl rand -base64 32)
+  POSTGRES_PASSWORD=$(openssl rand -hex 32)
   oc -n redhat-ods-applications new-app postgresql-ephemeral -p POSTGRESQL_DATABASE=maas -p POSTGRESQL_USER=maas -p POSTGRESQL_PASSWORD=$POSTGRES_PASSWORD
 fi
 
