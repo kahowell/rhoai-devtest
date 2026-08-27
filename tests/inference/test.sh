@@ -39,7 +39,7 @@ echo "Waiting for DSCI default-dsci to be Ready..."
 until oc get dsci default-dsci &>/dev/null; do
   sleep 2
 done
-oc wait --for=condition=Ready dsci/default-dsci --timeout=300s
+oc wait --for=jsonpath='{.status.phase}'=Ready dsci/default-dsci --timeout=300s
 
 wait_for_crd "kuadrants.kuadrant.io"
 oc apply -f kuadrant.yaml
@@ -48,6 +48,25 @@ echo "Waiting for rhods-operator deployment in redhat-ods-operator namespace..."
 oc wait --for=condition=Available deployment/rhods-operator -n redhat-ods-operator --timeout=300s
 
 wait_for_endpoints "rhods-operator-service" "redhat-ods-operator"
+
+echo "Waiting for service/authorino-authorino-authorization in kuadrant-system namespace..."
+until oc get service/authorino-authorino-authorization -n kuadrant-system &>/dev/null; do
+  sleep 2
+done
+
+echo "Waiting for deployment/authorino in kuadrant-system namespace..."
+until oc get deployment/authorino -n kuadrant-system &>/dev/null; do
+  sleep 2
+done
+oc wait --for=condition=Available deployment/authorino -n kuadrant-system --timeout=300s
+
+# authorino.sh, maas-gateway.sh, and postgres.sh must run before the DSC is
+# applied: DSC's MaaS platform reconcile requires the Gateway created by
+# maas-gateway.sh to already exist, and postgres.sh only needs the
+# redhat-ods-applications namespace, which DSCI (not DSC) already created above.
+./authorino.sh
+./maas-gateway.sh
+./postgres.sh
 
 wait_for_crd "datascienceclusters.datasciencecluster.opendatahub.io"
 oc apply -f dsc.yaml
@@ -66,20 +85,6 @@ oc apply -f lgtm.yaml
 # hack: networkpolicy to allow otlp from all ns
 oc apply -f networkpolicy.yaml
 
-echo "Waiting for service/authorino-authorino-authorization in kuadrant-system namespace..."
-until oc get service/authorino-authorino-authorization -n kuadrant-system &>/dev/null; do
-  sleep 2
-done
-
-echo "Waiting for deployment/authorino in kuadrant-system namespace..."
-until oc get deployment/authorino -n kuadrant-system &>/dev/null; do
-  sleep 2
-done
-oc wait --for=condition=Available deployment/authorino -n kuadrant-system --timeout=300s
-
-./authorino.sh
-./maas-gateway.sh
-./postgres.sh
 wait_for_crd "gateways.gateway.networking.k8s.io"
 oc apply -f ai-gateway.yaml
 
@@ -94,7 +99,6 @@ wait_for_crd "uiplugins.observability.openshift.io"
 oc apply -f coo-uiplugins.yaml
 
 wait_for_crd "tenants.maas.opendatahub.io"
-wait_for_endpoints "maas-controller-webhook-service" "redhat-ods-applications"
 oc apply -f maastenant.yaml
 
 wait_for_crd "maasauthpolicies.maas.opendatahub.io"

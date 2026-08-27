@@ -1,5 +1,10 @@
 CLUSTER_DOMAIN=$(kubectl get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}')
 CERT_NAME=$(kubectl get ingresscontroller default -n openshift-ingress-operator -o jsonpath='{.spec.defaultCertificate.name}')
+if [ -z "$CERT_NAME" ]; then
+  # No custom default certificate configured; fall back to OpenShift's
+  # auto-generated router serving cert secret in openshift-ingress.
+  CERT_NAME="router-certs-default"
+fi
 
 kubectl apply -f - <<EOF
 apiVersion: gateway.networking.k8s.io/v1

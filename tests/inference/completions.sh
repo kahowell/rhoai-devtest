@@ -28,6 +28,7 @@ echo "Obtaining API key..."
 API_KEY_RESPONSE=$(curl -sSk \
   -H "Authorization: Bearer ${OC_TOKEN}" \
   -H "Content-Type: application/json" \
+  -H "X-MaaS-Tenant: models-as-a-service" \
   -X POST \
   -d '{"name": "validation-key", "description": "Key for validation", "expiresIn": "1h", "subscription": "facebook-opt-125m-cpu-subscription"}' \
   "${MAAS_API_URL}/maas-api/v1/api-keys")
@@ -44,7 +45,8 @@ echo "API key obtained: ${API_KEY:0:20}..."
 echo "Fetching models..."
 MODELS=$(curl -sSk "${MAAS_API_URL}/maas-api/v1/models" \
     -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $API_KEY")
+    -H "Authorization: Bearer $API_KEY" \
+    -H "X-MaaS-Tenant: models-as-a-service")
 
 if [ -z "$MODELS" ] || [ "$MODELS" = "null" ]; then
   echo "Error: Failed to fetch models list." >&2
