@@ -66,17 +66,6 @@ oc apply -f lgtm.yaml
 # hack: networkpolicy to allow otlp from all ns
 oc apply -f networkpolicy.yaml
 
-echo "Waiting for service/authorino-authorino-authorization in kuadrant-system namespace..."
-until oc get service/authorino-authorino-authorization -n kuadrant-system &>/dev/null; do
-  sleep 2
-done
-
-echo "Waiting for deployment/authorino in kuadrant-system namespace..."
-until oc get deployment/authorino -n kuadrant-system &>/dev/null; do
-  sleep 2
-done
-oc wait --for=condition=Available deployment/authorino -n kuadrant-system --timeout=300s
-
 ./authorino.sh
 ./maas-gateway.sh
 ./postgres.sh
