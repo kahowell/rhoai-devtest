@@ -34,3 +34,5 @@ spec:
          name: ${CERT_NAME}
        mode: Terminate
 EOF
+
+kubectl wait -n openshift-ingress --for=condition=Programmed gateway/maas-default-gateway --timeout=300s
