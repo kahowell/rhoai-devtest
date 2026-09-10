@@ -106,7 +106,7 @@ This command verifies AWS and OCM authentication status, sorts and discovers the
 #### 2. `rhoai-cluster`
 Provisions a RHOAI development cluster.
 ```bash
-rhoai-devtest rhoai-cluster [--name NAME] [--machine-type TYPE] [--version VERSION] [--rhoai-version VERSION] [--replicas REPLICAS]
+rhoai-devtest rhoai-cluster [--name NAME] [--machine-type TYPE] [--version VERSION] [--rhoai-version VERSION] [--replicas REPLICAS] [--preset {default,llm-d-o11y,maas-o11y}]
 ```
 
 * `--name`: Name of the cluster. If specified and the cluster already exists, it is reused. If specified and it does not exist, a new cluster is provisioned. If `--name` is not specified, an existing active cluster matching your system username is used, or the command fails if none are found.
@@ -114,6 +114,7 @@ rhoai-devtest rhoai-cluster [--name NAME] [--machine-type TYPE] [--version VERSI
 * `--version`: OpenShift version if a new cluster is provisioned.
 * `--rhoai-version`: RHOAI version or nightly image reference to deploy.
 * `--replicas`: Number of compute node replicas to provision if provisioning a new cluster.
+* `--preset`: RHOAI development profile to install. `default` currently installs the same resources as `llm-d-o11y`; `maas-o11y` installs the MaaS gateway, model-serving, and observability resources.
 
 #### 3. `cleanup`
 Safely destroys existing development and test clusters.

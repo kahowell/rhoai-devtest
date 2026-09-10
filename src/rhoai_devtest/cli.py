@@ -78,6 +78,12 @@ def main():
         default=None,
         help="Number of compute replicas to provision if provisioning a new cluster"
     )
+    rhoai_parser.add_argument(
+        "--preset",
+        choices=["default", "llm-d-o11y", "maas-o11y"],
+        default="default",
+        help="RHOAI development preset to install (default: default)"
+    )
 
     # cleanup parser
     cleanup_parser = subparsers.add_parser(
@@ -129,7 +135,8 @@ def main():
             config=config,
             verbose=args.verbose,
             rhoai_version=args.rhoai_version,
-            replicas=args.replicas
+            replicas=args.replicas,
+            preset=args.preset
         )
     elif args.command == "cleanup":
         handle_cleanup(

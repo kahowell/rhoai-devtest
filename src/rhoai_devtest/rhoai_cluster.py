@@ -14,116 +14,92 @@ from .auth import ensure_authenticated
 from .openshift_cluster import create_openshift_cluster
 from .rhoai import install_rhoai
 from .rhoai_nightly import install_rhoai_nightly
-from .utils import (
-    _apply_yaml,
-    generate_operator_yaml,
-)
+from .resource_installer import install_preset_resources
+from .utils import _apply_yaml, generate_operator_yaml
 
 
-def install_operators(target_cluster: str, verbose: bool = False):
-    """
-    Install required operators on the OpenShift cluster.
-    """
-    print(f"\nInstalling required operators on cluster '{target_cluster}'...")
+_OPERATOR_CONFIG: dict[str, dict[str, Any]] = {
+    "cert-manager": {
+        "operator": "openshift-cert-manager-operator", "namespace": "cert-manager-operator", "channel": "stable-v1",
+    },
+    "observability": {
+        "operator": "cluster-observability-operator", "namespace": "openshift-cluster-observability-operator",
+    },
+    "jobset": {
+        "operator": "job-set", "namespace": "openshift-jobset-operator", "channel": "stable-v1.0",
+        "target_namespaces": ["openshift-jobset-operator"],
+    },
+    "kueue": {
+        "operator": "kueue-operator", "namespace": "openshift-kueue-operator", "channel": "stable-v1.4",
+    },
+    "lws": {
+        "operator": "leader-worker-set", "namespace": "openshift-lws-operator", "channel": "stable-v1.0",
+        "target_namespaces": ["openshift-lws-operator"],
+    },
+    "mariadb": {
+        "operator": "mariadb-operator", "namespace": "mariadb-operator", "channel": "alpha",
+        "source": "community-operators", "install_plan_approval": "Manual", "starting_csv": "mariadb-operator.v0.29.0",
+    },
+    "nfd": {
+        "operator": "nfd", "namespace": "openshift-nfd", "target_namespaces": ["openshift-nfd"],
+    },
+    "gpu": {
+        "operator": "gpu-operator-certified", "namespace": "nvidia-gpu-operator", "channel": "v25.10",
+        "source": "certified-operators", "target_namespaces": ["nvidia-gpu-operator"],
+    },
+    "keda": {
+        "operator": "openshift-custom-metrics-autoscaler-operator", "namespace": "openshift-keda",
+    },
+    "otel": {
+        "operator": "opentelemetry-product", "namespace": "openshift-opentelemetry-operator",
+    },
+    "kuadrant": {
+        "operator": "rhcl-operator", "namespace": "kuadrant-system",
+    },
+    "tempo": {
+        "operator": "tempo-product", "namespace": "openshift-tempo-operator",
+    },
+}
 
-    operators_config = [
-        {
-            "operator": "openshift-cert-manager-operator",
-            "namespace": "cert-manager-operator",
-            "channel": "stable-v1",
-            "source": "redhat-operators",
-            "source_namespace": "openshift-marketplace",
-        },
-        {
-            "operator": "cluster-observability-operator",
-            "namespace": "openshift-cluster-observability-operator",
-            "channel": "stable",
-            "source": "redhat-operators",
-            "source_namespace": "openshift-marketplace",
-        },
-        {
-            "operator": "job-set",
-            "namespace": "openshift-jobset-operator",
-            "channel": "stable-v1.0",
-            "source": "redhat-operators",
-            "source_namespace": "openshift-marketplace",
-            "target_namespaces": ["openshift-jobset-operator"],
-        },
-        {
-            "operator": "kueue-operator",
-            "namespace": "openshift-kueue-operator",
-            "channel": "stable-v1.4",
-            "source": "redhat-operators",
-            "source_namespace": "openshift-marketplace",
-        },
-        {
-            "operator": "leader-worker-set",
-            "namespace": "openshift-lws-operator",
-            "channel": "stable-v1.0",
-            "source": "redhat-operators",
-            "source_namespace": "openshift-marketplace",
-            "target_namespaces": ["openshift-lws-operator"],
-        },
-        {
-            "operator": "mariadb-operator",
-            "namespace": "mariadb-operator",
-            "channel": "alpha",
-            "source": "community-operators",
-            "source_namespace": "openshift-marketplace",
-            "install_plan_approval": "Manual",
-            "starting_csv": "mariadb-operator.v0.29.0",
-        },
-        {
-            "operator": "nfd",
-            "namespace": "openshift-nfd",
-            "channel": "stable",
-            "source": "redhat-operators",
-            "source_namespace": "openshift-marketplace",
-            "target_namespaces": ["openshift-nfd"],
-        },
-        {
-            "operator": "gpu-operator-certified",
-            "namespace": "nvidia-gpu-operator",
-            "channel": "v25.10",
-            "source": "certified-operators",
-            "source_namespace": "openshift-marketplace",
-            "target_namespaces": ["nvidia-gpu-operator"],
-        },
-        {
-            "operator": "openshift-custom-metrics-autoscaler-operator",
-            "namespace": "openshift-keda",
-            "channel": "stable",
-            "source": "redhat-operators",
-            "source_namespace": "openshift-marketplace",
-        },
-        {
-            "operator": "opentelemetry-product",
-            "namespace": "openshift-opentelemetry-operator",
-            "channel": "stable",
-            "source": "redhat-operators",
-            "source_namespace": "openshift-marketplace",
-        },
-        {
-            "operator": "rhcl-operator",
-            "namespace": "kuadrant-system",
-            "channel": "stable",
-            "source": "redhat-operators",
-            "source_namespace": "openshift-marketplace",
-        },
-        {
-            "operator": "tempo-product",
-            "namespace": "openshift-tempo-operator",
-            "channel": "stable",
-            "source": "redhat-operators",
-            "source_namespace": "openshift-marketplace",
-        },
-    ]
+_PRESET_OPERATORS = {
+    "default": ["cert-manager", "observability", "jobset", "kueue", "lws", "otel", "tempo"],
+    "llm-d-o11y": ["cert-manager", "observability", "jobset", "kueue", "lws", "otel", "tempo"],
+    "maas-o11y": list(_OPERATOR_CONFIG),
+}
+
+
+def wait_for_cluster_admin(verbose: bool = False, timeout: int = 300) -> None:
+    """Wait for the cluster-admin grant to propagate through OpenShift RBAC."""
+    print("Waiting for cluster-admin RBAC permissions to become effective...")
+    deadline = time.monotonic() + timeout
+    command = ["oc", "auth", "can-i", "*", "*"]
+    while time.monotonic() < deadline:
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        if verbose:
+            print(f"[DEBUG] RBAC check returned {result.stdout.strip()!r}: {result.stderr.strip()!r}")
+        if result.returncode == 0 and result.stdout.strip().lower() == "yes":
+            print("Cluster-admin RBAC permissions are ready.")
+            return
+        time.sleep(5)
+
+    raise RuntimeError(
+        "Timed out waiting for cluster-admin RBAC permissions. "
+        "The rosa grant may not have propagated to the current OpenShift login."
+    )
+
+
+def install_operators(target_cluster: str, preset: str = "default", verbose: bool = False):
+    """Install the operators required by a RHOAI development preset."""
+    print(f"\nInstalling operators for preset '{preset}' on cluster '{target_cluster}'...")
+    if preset not in _PRESET_OPERATORS:
+        raise ValueError(f"Unknown preset: {preset}")
 
     yaml_blocks = []
-    for op in operators_config:
+    for key in _PRESET_OPERATORS[preset]:
+        op = _OPERATOR_CONFIG[key]
         if verbose:
             print(f"[DEBUG] Preparing YAML for operator '{op['operator']}'...")
-        op_yaml = generate_operator_yaml(
+        yaml_blocks.append(generate_operator_yaml(
             namespace=op["namespace"],
             operator=op["operator"],
             channel=op.get("channel", "stable"),
@@ -132,18 +108,11 @@ def install_operators(target_cluster: str, verbose: bool = False):
             install_plan_approval=op.get("install_plan_approval", "Automatic"),
             starting_csv=op.get("starting_csv"),
             target_namespaces=op.get("target_namespaces"),
-        )
-        yaml_blocks.append(op_yaml)
+        ))
 
-    # Combine all manifests separated by "---"
-    combined_yaml = "\n---\n".join(yaml_blocks)
-
-    if verbose:
-        print("[DEBUG] Applying all operator manifests in a single apply call...")
-    if not _apply_yaml(combined_yaml, verbose=verbose):
+    if not _apply_yaml("\n---\n".join(yaml_blocks), verbose=verbose):
         print("Error: Failed to install prerequisite operators.", file=sys.stderr)
         sys.exit(1)
-
     print("Operators installation completed successfully.")
 
 
@@ -445,6 +414,7 @@ def handle_rhoai_cluster(
     verbose: bool = False,
     rhoai_version: str | None = None,
     replicas: str | None = None,
+    preset: str = "default",
 ):
     ensure_authenticated(verbose=verbose)
 
@@ -491,8 +461,11 @@ def handle_rhoai_cluster(
     # Ensure local kubeconfig is set up for target_cluster
     console_url = ensure_kubeconfig_setup(target_cluster, verbose=verbose)
 
+    # Wait for the cluster-admin grant to propagate before installing operators.
+    wait_for_cluster_admin(verbose=verbose)
+
     # Install required operators prior to RHOAI deployment
-    install_operators(target_cluster, verbose=verbose)
+    install_operators(target_cluster, preset=preset, verbose=verbose)
 
     # Perform installation based on the rhoai_version option
     if rhoai_version is not None:
@@ -505,6 +478,8 @@ def handle_rhoai_cluster(
     else:
         # standard installation with default version
         install_rhoai(target_cluster, version=None, verbose=verbose)
+
+    install_preset_resources(preset, verbose=verbose)
 
     if console_url:
         print(f"\nOpenShift Console URL: {console_url}")
