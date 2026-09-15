@@ -7,7 +7,7 @@ spec:
     uri: hf://facebook/opt-125m
     name: facebook/opt-125m
   tracing:
-    exporterEndpoint: http://data-science-collector.redhat-ods-monitoring.svc.cluster.local:4317
+    exporterEndpoint: http://data-science-collector-collector.redhat-ods-monitoring.svc.cluster.local:4317
     sampler: always_on
   replicas: 1
   template:

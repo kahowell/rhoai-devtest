@@ -33,6 +33,8 @@ spec:
           volumeMounts:
             - mountPath: /data
               name: data
+            - mountPath: /otel-lgtm/grafana/data
+              name: grafana-data
             - mountPath: /var/tempo
               name: tempo
           env:
@@ -43,6 +45,8 @@ spec:
         - name: data
           emptyDir: {}
         - name: tempo
+          emptyDir: {}
+        - name: grafana-data
           emptyDir: {}
 ---
 apiVersion: v1
