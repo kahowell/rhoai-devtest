@@ -1,5 +1,7 @@
+import base64
 import json
 import os
+import random
 import subprocess
 import sys
 import time
@@ -32,17 +34,7 @@ def setup_htpasswd_idp(cluster_name: str | None, verbose: bool = False) -> None:
         target_cluster = cluster_name
 
     # 1. Generate randomized password
-    try:
-        password_res = subprocess.run(
-            ["openssl", "rand", "--base64", "32"],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        password = password_res.stdout.strip()
-    except (subprocess.SubprocessError, FileNotFoundError) as e:
-        print(f"Error: Failed to generate randomized password using openssl: {e}", file=sys.stderr)
-        sys.exit(1)
+    password = base64.b64encode(random.randbytes(32)).decode('utf-8')
 
     print(f"Configuring htpasswd identity provider for cluster '{target_cluster}'...")
 
