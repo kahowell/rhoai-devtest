@@ -9,7 +9,7 @@ metadata:
 spec:
   modelRefs:
     - name: facebook-opt-125m-single
-      namespace: default
+      namespace: demo
   subjects:
     groups:
       - name: system:authenticated

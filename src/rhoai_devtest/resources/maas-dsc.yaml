@@ -41,7 +41,7 @@ spec:
     mlflowoperator:
       managementState: Removed
     dashboard:
-      managementState: Removed
+      managementState: Managed
     trainer:
       managementState: Removed
     llamastackoperator:

@@ -10,7 +10,7 @@ spec:
     users: []
   modelRefs:
     - name: facebook-opt-125m-single
-      namespace: default
+      namespace: demo
       tokenRateLimits:
         - limit: 100
           window: 1m

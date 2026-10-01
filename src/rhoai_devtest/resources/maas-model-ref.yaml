@@ -2,6 +2,7 @@ apiVersion: maas.opendatahub.io/v1alpha1
 kind: MaaSModelRef
 metadata:
   name: facebook-opt-125m-single
+  namespace: demo
   annotations:
     openshift.io/display-name: "Facebook OPT 125M (Simulated)"
     openshift.io/description: "A simulated OPT-125M model for free-tier testing"
