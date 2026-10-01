@@ -87,6 +87,8 @@ if [ -z "$MODEL_URL" ] || [ "$MODEL_URL" = "null" ]; then
   exit 1
 fi
 
+MODEL_ID=$(echo "$MODELS" | jq -r '.data[0].id')
+
 echo "Model URL: $MODEL_URL"
 
 echo "Sending completions request..."
@@ -95,7 +97,7 @@ HTTP_STATUS=$(curl -sS -k -o "$RESPONSE_FILE" -w "%{http_code}" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "publishers/default/models/facebook/opt-125m",
+    "model": "'$MODEL_ID'",
     "prompt": "San Francisco is a",
     "max_tokens": 7,
     "temperature": 0
