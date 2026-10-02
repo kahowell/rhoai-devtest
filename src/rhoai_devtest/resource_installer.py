@@ -231,6 +231,7 @@ def install_preset_resources(preset: str, *, verbose: bool = False) -> None:
 
     _wait_for_crd("uiplugins.observability.openshift.io", verbose=verbose)
     _apply_resource("coo-uiplugins.yaml", verbose=verbose)
+    _apply_resource("namespace.yaml", verbose=verbose)
 
     if is_maas:
         _wait_for_crd("tenants.maas.opendatahub.io", verbose=verbose)
